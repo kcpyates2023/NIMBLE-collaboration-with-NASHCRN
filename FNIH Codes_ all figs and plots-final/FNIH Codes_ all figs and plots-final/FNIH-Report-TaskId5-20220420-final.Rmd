@@ -1,0 +1,1634 @@
+---
+title: "FNIH REPORT (ID5)"
+author: "Yongfang"
+date: "04/20/2022"
+output:
+  word_document:
+    fig_width: 12
+    fig_height: 8
+    fig_caption: yes
+    highlight: pygments
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+
+library(knitr)
+knitr::opts_chunk$set(echo=FALSE, cache=FALSE, eval=TRUE, warning=FALSE, message=FALSE,  fig.align = "center")
+
+```
+
+
+# Further formating is needed after kint the docuemnt
+# 1: replace ** with whitespace
+# 2: merge row of "Candidate Biomarker classification at the optimal cut-point"
+# 3: merge row of "Performance Parameters at the optimal cut-point"
+
+```{r loading R packages and source code , echo=FALSE}
+
+rm(list=ls())
+setwd("C:\\Users\\Yongfang.Lu\\OneDrive - Cytel\\Desktop\\FNIH\\Development\\Code")
+DIR_FILES <- "C:\\Users\\Yongfang.Lu\\OneDrive - Cytel\\Desktop\\FNIH\\Raw_Data\\"
+library(openxlsx)
+library(readxl)
+library(stringr)
+library(cutpointr)
+library(dplyr)
+library(pROC)
+List<-c("SUBJID","ageyrs","platelet","Fibrosis","Advanced_Fibrosis","Cirrhosis", "Fibrosis_Excluding_Cirrhosis","NASH","NAS","At_Risk_NASH","dm2")
+List_Endpoint<-List[-c(1:3)]
+Def_Endpoint<-read.csv("C:\\Users\\Yongfang.Lu\\OneDrive - Cytel\\Desktop\\FNIH\\Development\\FNIH_Endpoint_Definition.csv")
+
+
+source("C:\\Users\\Yongfang.Lu\\OneDrive - Cytel\\Desktop\\FNIH\\Development\\Code\\Table_Fun2_Space 220114.R")
+source("C:\\Users\\Yongfang.Lu\\OneDrive - Cytel\\Desktop\\FNIH\\Development\\Code\\Table_Fun_ComparsionCandiatevsBiomarkers 220114.R")
+
+# #for catalog biomarkers, use following functions 
+# source("C:\\Users\\yongfangl\\Desktop\\FNIH\\Development\\Code\\CutpointAnalysis_Catalog.R")
+# source("C:\\Users\\yongfangl\\Desktop\\FNIH\\Development\\Code\\Table_Fun2_Space_Catalog.R")
+# source("C:\\Users\\yongfangl\\Desktop\\FNIH\\Development\\Code\\Table_Fun_ComparsionCandiatevsBiomarkers_Catalog.R")
+
+```
+
+
+```{r For loading data, message=FALSE,warning=FALSE, results="markup"}
+
+#####################################################################################
+####################### #loading data and data handling ############################
+#####################################################################################
+
+Siemens<- read.csv(paste0(DIR_FILES,"Nimble_Siemens_24FEB2021.csv"))
+Nordic<-  read.csv(paste0(DIR_FILES,"Nimble_Nordic_16APR2021.csv")) # ELISA
+Labcorp<- read_excel(paste0(DIR_FILES,"NIMBLE_labcorp_18Mar2021.xls"));Labcorp<-Labcorp[-(7453:7455),];Labcorp$Result<-as.numeric(as.character(Labcorp$RESULT))
+MetaDat<- read_excel(paste0(DIR_FILES,"nimble_metadata_28mar21.xlsx"))
+CRNDat<- read_excel(paste0(DIR_FILES,"nimble_owl_clinds_7apr21.xlsx"),sheet = "Data")
+GenfitDat<- read.csv(paste0(DIR_FILES,"Nimble_Genfit_19072021.csv"))
+OWLDat<-read.csv(paste0(DIR_FILES,"NIMBLE_OWLiver Panels_Results.csv"))
+FibrometerDat1<-read.csv(paste0(DIR_FILES,"fibrometer_LSM_CAP_Agile_FAST_FMVCTE.csv"))
+FibrometerDat2<- read.csv(paste0(DIR_FILES,"fibrometer_results_V3G_NAFLD_CirrhoMeter_p.csv"))
+
+PROC3<-read.csv(paste0(DIR_FILES,"\\NIMBLE_Nordic_04NOV2021\\Nimble_Nordic_Cobas_04NOV2021.csv"))# COMBAS records
+
+
+
+#processing data
+# why lapcrop list patient names twice, keep one is enough-> YES!!!
+PATIENT_NAME<-do.call("rbind",strsplit(Labcorp$`PATIENT NAME`, "        "))
+# sum(PATIENT_NAME[,1]==PATIENT_NAME[,2])==nrow(PATIENT_NAME)
+# Labcorp$`PATIENT NAME`<-PATIENT_NAME[,1]
+# unique(Labcorp$TEST_ORD_NAME) # 7 unque parameters from Labcorp data
+# # [1] "Protein, Total"       "Albumin"              "Bilirubin, Total"     "Bilirubin, Direct"    "Alkaline Phosphatase"
+# # [6] "AST (SGOT)"           "ALT (SGPT)"
+# 
+# unique(Nordic$LBTESTCD) # 6 unique parameters from Nordic data
+# #[1] C3M   C4M   PROC3 PROC4 PROC5 PROC6
+# 
+# unique(Siemens$LBTESTCD) # Siemen data holds the ELF_TEST reslt
+
+# unique(GenfitDat$LBTESTCD) 
+# "A2M"   "HBA1C" "NIS4"  "NISX" 
+
+### check the correct subject ID to use in order to merge data
+Nordic$SUBJID<-do.call("rbind",strsplit(as.character(Nordic$BARCODE), "LS"))[,1]
+Nordic$SUBJID<-do.call("rbind",strsplit(Nordic$SUBJID, "N"))[,2]
+
+PROC3$SUBJID<-do.call("rbind",strsplit(as.character(PROC3$BARCODE), "LS"))[,1]
+PROC3$SUBJID<-do.call("rbind",strsplit(PROC3$SUBJID, "N"))[,2]
+
+
+Labcorp$SUBJID<-do.call("rbind",strsplit(as.character(Labcorp$`PATIENT NAME`), "L"))[,1]
+Labcorp$SUBJID<-do.call("rbind",strsplit(Labcorp$SUBJID, "N"))[,2]
+
+Siemens$SUBJID<-do.call("rbind",strsplit(as.character(Siemens$BARCODE), "LS"))[,1]
+Siemens$SUBJID<-do.call("rbind",strsplit(Siemens$SUBJID, "N"))[,2]
+
+#CRNDat$SUBJID<-do.call("rbind",strsplit(as.character(CRNDat$current_label), "LS"))[,1]
+CRNDat$SUBJID<-do.call("rbind",strsplit(CRNDat$subjid, "N"))[,2]
+
+GenfitDat$SUBJID<-do.call("rbind",strsplit(as.character(GenfitDat$BARCODE), "LS"))[,1]
+GenfitDat$SUBJID<-do.call("rbind",strsplit(GenfitDat$SUBJID, "N"))[,2]
+
+
+
+OWLDat$SUBJID<-do.call("rbind",strsplit(as.character(OWLDat$SAMPLE.ID), "LS"))[,1]
+OWLDat$SUBJID<-do.call("rbind",strsplit(OWLDat$SUBJID, "N"))[,2]
+
+FibrometerDat1$SUBJID<-do.call("rbind",strsplit(FibrometerDat1$SUBJID, "N"))[,2]
+FibrometerDat2$SUBJID<-do.call("rbind",strsplit(FibrometerDat2$SUBJID, "N"))[,2]
+
+MetaDat$SUBJID<-MetaDat$nash
+
+# #check how many unique subjects in each data
+# length(unique(Siemens$SUBJID))
+# length(unique(Labcorp$SUBJID))
+# length(unique(Nordic$SUBJID))
+# length(unique(MetaDat$SUBJID))
+# 
+# sum(unique(Nordic$SUBJID) %in% unique(Siemens$SUBJID))
+# sum(unique(Nordic$SUBJID) %in% unique(Labcorp$SUBJID))
+# sum(unique(Labcorp$SUBJID) %in% unique(Siemens$SUBJID))
+# sum(unique(MetaDat$SUBJID) %in% unique(Siemens$SUBJID))
+
+
+#get the endpoints ready and handling the data
+MetaDat$Fibrosis <-if_else(MetaDat$fibrosisn>=2,1,0)
+MetaDat$Advanced_Fibrosis <-if_else(MetaDat$fibrosisn>=3,1,0)
+MetaDat$Cirrhosis<-if_else(MetaDat$fibrosisn>=4,1,0)
+MetaDat$Fibrosis_Excluding_Cirrhosis<-if_else(MetaDat$fibrosisn>=2,1,0); 
+MetaDat$Fibrosis_Excluding_Cirrhosis[MetaDat$Cirrhosis==1]<-NA # this will be used to exclude subjects who are cirrhosis
+MetaDat$NASH<-if_else(MetaDat$anynash==1,1,0)
+MetaDat$NAS<-if_else(MetaDat$nas>=4,1,0)
+MetaDat$At_Risk_NASH<-if_else( (MetaDat$NASH==1 & MetaDat$NAS==1 & MetaDat$Fibrosis==1),1,0)
+
+
+
+Siemens$ELF<-Siemens$LBORRES
+
+# update PROC3 becusae new data was provided on Nov 4 2021
+# PROC3<-Nordic[Nordic$LBTEST=="Pro-C3",]
+# PROC3$'Pro-C3'<-PROC3$LBORRES
+# PROC3<-PROC3[,c("SUBJID","Pro-C3")]
+
+PROC3$'Pro-C3'<-PROC3$LBORRES
+PROC3<-PROC3[,c("SUBJID","Pro-C3")]
+
+
+PROC3_ELISA<-Nordic[Nordic$LBTEST=="Pro-C3",]
+PROC3_ELISA$'Pro-C3-ELISA'<-PROC3_ELISA$LBORRES
+PROC3_ELISA<-PROC3_ELISA[,c("SUBJID","Pro-C3-ELISA")]
+
+
+PROC4<-Nordic[Nordic$LBTEST=="Pro-C4",]
+PROC4$'Pro-C4'<-PROC4$LBORRES
+PROC4<-PROC4[,c("SUBJID","Pro-C4")]
+
+
+PROC5<-Nordic[Nordic$LBTEST=="Pro-C5",]
+PROC5$'Pro-C5'<-PROC5$LBORRES
+PROC5<-PROC5[,c("SUBJID","Pro-C5")]
+
+
+PROC6<-Nordic[Nordic$LBTEST=="Pro-C6",]
+PROC6$'Pro-C6'<-PROC6$LBORRES
+PROC6<-PROC6[,c("SUBJID","Pro-C6")]
+
+ALT<-Labcorp[Labcorp$TEST_ORD_NAME=="ALT (SGPT)",]
+ALT$ALT<-ALT$Result
+ALT<-merge(ALT, CRNDat[,c("SUBJID","alt")],all=TRUE)
+ALT$ALT[is.na(ALT$ALT)]<-ALT$alt[is.na(ALT$ALT)]
+ALT<-ALT[,c("SUBJID","ALT")]
+
+AST<-Labcorp[Labcorp$TEST_ORD_NAME=="AST (SGOT)",]
+AST$AST<-AST$Result
+AST<-merge(AST, CRNDat[,c("SUBJID","ast")],all=TRUE)
+AST$AST[is.na(AST$AST)]<-AST$ast[is.na(AST$AST)]
+AST<-AST[,c("SUBJID","AST")]
+
+NIS4<-GenfitDat[GenfitDat$LBTESTCD=="NIS4",]
+NIS4$NIS4<-NIS4$LBORRES
+NIS4<-NIS4[,c("SUBJID","NIS4")]
+
+OWLDat$OWL<-OWLDat$DIGANOSIS
+OWL<-OWLDat[,c("SUBJID","OWL")]
+
+#Agile4	Agile3Plus	FAST	FMVCTE	FMVCTE_light and FM3G V - FibrosisScore	CirrhosisScore	NAFLD - FibrosisScore
+Agile4<-FibrometerDat1[,c("SUBJID","Agile4")]
+Agile3Plus<-FibrometerDat1[,c("SUBJID","Agile3Plus")]
+FAST<-FibrometerDat1[,c("SUBJID","FAST")]
+FMVCTE<-FibrometerDat1[,c("SUBJID","FMVCTE")]
+FMVCTE_light<-FibrometerDat1[,c("SUBJID","FMVCTE_light")]
+
+NAFLD<-FibrometerDat2[,c("SUBJID","NAFLD...FibrosisScore")]; colnames(NAFLD)<-c("SUBJID","NAFLD")
+CirrhosisScore<-FibrometerDat2[,c("SUBJID","CirrhosisScore")]
+FM3GV<-FibrometerDat2[,c("SUBJID","FM3G.V...FibrosisScore")]; colnames(FM3GV)<-c("SUBJID","FM3GV")
+
+#####################################################################################
+################### creating the dataset ready for analysis #####################
+#####################################################################################
+Dat_ELF<-merge(Siemens[,c("SUBJID","LBTESTCD","ELF")], MetaDat[,List],by="SUBJID")
+saveRDS(Dat_ELF,file="Dat_ELF.rds")
+
+Dat_PROC3<-merge(PROC3, MetaDat[,List],by="SUBJID")
+saveRDS(Dat_PROC3,file="Dat_PROC3.rds")
+
+
+Dat_NIS4<-merge(NIS4, MetaDat[,List],by="SUBJID")
+saveRDS(Dat_NIS4,file="Dat_NIS4.rds")
+
+
+
+Dat_All<-merge(Siemens[,c("SUBJID","ELF")], MetaDat[,List],by="SUBJID")
+Dat_All<-merge(PROC3,Dat_All,by="SUBJID")
+Dat_All<-merge(PROC3_ELISA,Dat_All,by="SUBJID")
+Dat_All<-merge(PROC4,Dat_All,by="SUBJID")
+Dat_All<-merge(PROC5,Dat_All,by="SUBJID")
+Dat_All<-merge(PROC6,Dat_All,by="SUBJID")
+Dat_All<-merge(AST,Dat_All,by="SUBJID")
+Dat_All<-merge(ALT,Dat_All,by="SUBJID")
+Dat_All<-merge(NIS4,Dat_All,by="SUBJID")
+Dat_All<-merge(OWL,Dat_All,by="SUBJID")
+Dat_All<-merge(Agile4,Dat_All,by="SUBJID",all.y = TRUE)
+Dat_All<-merge(Agile3Plus,Dat_All,by="SUBJID",all.y = TRUE)
+Dat_All<-merge(FAST,Dat_All,by="SUBJID",all.y = TRUE)
+Dat_All<-merge(FMVCTE,Dat_All,by="SUBJID",all.y = TRUE)
+Dat_All<-merge(FMVCTE_light,Dat_All,by="SUBJID",all.y = TRUE)
+Dat_All<-merge(NAFLD,Dat_All,by="SUBJID",all.y = TRUE)
+Dat_All<-merge(CirrhosisScore,Dat_All,by="SUBJID",all.y = TRUE)
+Dat_All<-merge(FM3GV,Dat_All,by="SUBJID",all.y = TRUE)
+
+Dat_All$AGE<-floor(Dat_All$ageyrs)
+# calculating FIB-4
+#FIB4<-Age (years)×AST (U/L)/[PLT(109/L)×ALT1/2 (U/L)].  
+Dat_All$'FIB-4'<-(Dat_All$AGE*Dat_All$AST)/(Dat_All$platelet *sqrt(Dat_All$ALT))
+
+# calculating ADPAT
+#ADPAT<-exp(log10(Age*Proc-C3/sqrt(PLT)) + Diabetes.  
+Dat_All$ADAPT<-exp(log((Dat_All$AGE*Dat_All$'Pro-C3-ELISA')/sqrt(Dat_All$platelet),10))+ Dat_All$dm2  
+
+saveRDS(Dat_All,file="Dat_All 220111.rds")
+
+
+```
+<br>
+<br>
+
+```{r For self-defined functions}
+
+
+CutpointAnalysis_ConstrainSpecificity<-function(Dat, Marker, Endpoint, Def_Endpoint){
+  
+  #only keep complete records
+  Data<-Dat[complete.cases(Dat[,c(Marker,Endpoint)]),]
+  
+  #find optimum cutpoint
+  opt_cut <- cutpointr(x=Data[,Marker],
+                    class=Data[,Endpoint],
+                    method =maximize_metric, 
+                    metric = sens_constrain,
+                    constrain_metric = specificity,
+                    min_constrain = 0.9)
+  
+  # caculating P value
+  AUC<-opt_cut["AUC"]$AUC
+  a<- qnorm(AUC, mean=0, sd=1)*1.414
+  n2=sum(Data[,Endpoint]==1)
+  n1=sum(Data[,Endpoint]==0)
+  Var_AUC<-( 0.0099*exp((-0.5)*a^2) )*( (5*a^2+8)/n2 + (a^2+8)/n1 ) 
+  SE_AUC<-sqrt(Var_AUC)
+  z.test<-(AUC-0.5)/SE_AUC
+  Pvalue<- (1-pnorm(abs(z.test),mean=0,sd=1)) #this is 1-side test
+  
+  #create the AUC object
+  if(substr(opt_cut["direction"]$direction,1,1) == ">"){
+   ROC<-roc( Data[,Endpoint], Data[,Marker], direction="<")
+  }else{
+   ROC<-roc( Data[,Endpoint], Data[,Marker], direction=">")
+  }
+  
+  
+ 
+  FIT=list()
+  FIT[["Biomarker"]]<-Data[,Marker];
+  FIT[["Endpoint"]]<-Data[,Endpoint];
+  FIT[["AUCROC"]]<-opt_cut["AUC"]$AUC
+  FIT[["Youden_Index"]]<-opt_cut["sensitivity"] +  opt_cut["specificity"] -1
+  FIT[["PredictionStat"]]<-summary(opt_cut)$confusion_matrix[[1]][1,c("tp", "fp","tn","fn")]
+  FIT[["Optimal_cutpoint"]]<-round(opt_cut["optimal_cutpoint"]$optimal_cutpoint,1)
+  FIT[["Optimal_cutpoint_direction"]]<-opt_cut["direction"]$direction
+  FIT[["Pvalue"]]<-Pvalue
+  FIT[["SE_AUCROC"]]<-SE_AUC
+  FIT[["Biomarker_name"]]<-Marker
+  FIT[["Endpoint_name"]]<-Endpoint
+  FIT[["Endpoint_pos_var"]]<-Def_Endpoint$Positive[Def_Endpoint$Endpoint.variables==Endpoint]
+  FIT[["Endpoint_neg_var"]]<-Def_Endpoint$Negative[Def_Endpoint$Endpoint.variables==Endpoint]
+  FIT[["ROC"]]<-ROC
+  
+  return(FIT)
+  
+}
+
+
+
+
+CutpointAnalysis_ConstrainSensitivity<-function(Dat, Marker, Endpoint, Def_Endpoint){
+  
+  #only keep complete records
+  Data<-Dat[complete.cases(Dat[,c(Marker,Endpoint)]),]
+  
+  #find optimum cutpoint
+  opt_cut <- cutpointr(x=Data[,Marker],
+                    class=Data[,Endpoint],
+                    method =maximize_metric, 
+                    metric = spec_constrain,
+                    constrain_metric =  sensitivity,
+                    min_constrain = 0.9)
+  
+  # caculating P value
+  AUC<-opt_cut["AUC"]$AUC
+  a<- qnorm(AUC, mean=0, sd=1)*1.414
+  n2=sum(Data[,Endpoint]==1)
+  n1=sum(Data[,Endpoint]==0)
+  Var_AUC<-( 0.0099*exp((-0.5)*a^2) )*( (5*a^2+8)/n2 + (a^2+8)/n1 ) 
+  SE_AUC<-sqrt(Var_AUC)
+  z.test<-(AUC-0.5)/SE_AUC
+  Pvalue<- (1-pnorm(abs(z.test),mean=0,sd=1)) #this is 1-side test
+  
+  #create the AUC object
+  if(substr(opt_cut["direction"]$direction,1,1) == ">"){
+   ROC<-roc( Data[,Endpoint], Data[,Marker], direction="<")
+  }else{
+   ROC<-roc( Data[,Endpoint], Data[,Marker], direction=">")
+  }
+  
+  
+ 
+  FIT=list()
+  FIT[["Biomarker"]]<-Data[,Marker];
+  FIT[["Endpoint"]]<-Data[,Endpoint];
+  FIT[["AUCROC"]]<-opt_cut["AUC"]$AUC
+  FIT[["Youden_Index"]]<-opt_cut["sensitivity"] +  opt_cut["specificity"] -1
+  FIT[["PredictionStat"]]<-summary(opt_cut)$confusion_matrix[[1]][1,c("tp", "fp","tn","fn")]
+  FIT[["Optimal_cutpoint"]]<-round(opt_cut["optimal_cutpoint"]$optimal_cutpoint,1)
+  FIT[["Optimal_cutpoint_direction"]]<-opt_cut["direction"]$direction
+  FIT[["Pvalue"]]<-Pvalue
+  FIT[["SE_AUCROC"]]<-SE_AUC
+  FIT[["Biomarker_name"]]<-Marker
+  FIT[["Endpoint_name"]]<-Endpoint
+  FIT[["Endpoint_pos_var"]]<-Def_Endpoint$Positive[Def_Endpoint$Endpoint.variables==Endpoint]
+  FIT[["Endpoint_neg_var"]]<-Def_Endpoint$Negative[Def_Endpoint$Endpoint.variables==Endpoint]
+  FIT[["ROC"]]<-ROC
+  
+  return(FIT)
+  
+}
+
+
+```
+<br>
+<br>
+
+\newpage
+# Chapter II: Diagnostic Performance Tables by Biomarkers
+<br>
+<br>
+
+
+
+## Table 14.2.2.1 Diagnostic performance of candidate biomarker ELF  
+<br>
+ 
+
+```{r ELF,echo=FALSE,results='asis',eval=TRUE}
+
+
+Dat=Dat_All;
+Marker="ELF" 
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis","Fibrosis_Excluding_Cirrhosis")
+
+
+
+for(i in 1:length(List_Endpoint_update)){
+  
+  Endpoint<-List_Endpoint_update[i]
+  
+  
+  #Maximize sensitivity when constraining specificity to be at least 90%
+  Output<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  cat("Table 14.2.2.1A Diagnostic performance of ELF (Maximize sensitivity when constraining specificity to be at least 90%)")
+  Table<-Table_Fun(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  
+  #Maximize specificity when constraining sensitivity to be at least 90%
+  Output<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  cat("Table 14.2.2.1B Diagnostic performance of ELF (Maximize specificity when constraining sensitivity to be at least 90%)")
+  Table<-Table_Fun(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+
+
+}
+
+
+
+```
+<br>
+
+
+## Table 14.2.2.2 Diagnostic performance of candidate Fibrometer biomarkers
+<br>
+ 
+
+```{r FibrosisScore,echo=FALSE,results='asis',eval=TRUE}
+
+
+Dat=Dat_All;
+#Marker_list<-c("FM3GV", "CirrhosisScore", "NAFLD", "FMVCTE_light", "FMVCTE", "FAST", "Agile3Plus", "Agile4")
+Marker_list<-c("FMVCTE")
+ 
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis","Fibrosis_Excluding_Cirrhosis")
+
+for(i in 1:length(Marker_list)){
+  
+    Marker<-Marker_list[i]
+    
+    for(j in 1:length(List_Endpoint_update)){
+      
+    Endpoint<-List_Endpoint_update[j]
+    
+    
+    #Maximize sensitivity when constraining specificity to be at least 90%
+    Output<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+    cat(paste0("Table 14.2.2.2.",i, "A Diagnostic performance of ", Marker, " (Maximize sensitivity when constraining specificity to be at least 90%)"))
+    Table<-Table_Fun(FIT=Output)
+    print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+    cat(paste("  ","  ","  ",sep="\n"))
+    cat(paste("  ","  ","  ",sep="\n"))
+    
+    Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+    Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+      
+    cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+    cat(paste("  ","  ","  ",sep="\n"))
+    cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+    cat(paste("  ","  ","  ",sep="\n"))
+    cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+    cat(paste("  ","  ","  ",sep="\n"))
+    
+    
+    #(Maximize specificity when constraining sensitivity to be at least 90%)
+    Output<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+    cat(paste0("Table 14.2.2.2.",i, "B Diagnostic performance of ", Marker, " (Maximize specificity when constraining sensitivity to be at least 90%)"))
+    Table<-Table_Fun(FIT=Output)
+    print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+    cat(paste("  ","  ","  ",sep="\n"))
+    cat(paste("  ","  ","  ",sep="\n"))
+    
+    Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+    Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+      
+    cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+    cat(paste("  ","  ","  ",sep="\n"))
+    cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+    cat(paste("  ","  ","  ",sep="\n"))
+    cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+    cat(paste("  ","  ","  ",sep="\n"))
+    }
+  }
+
+
+
+```
+<br>
+
+## Table 14.2.2.3 Diagnostic performance of candidate biomarker NIS4  
+<br>
+ 
+
+```{r NIS4,echo=FALSE,results='asis',eval=TRUE}
+
+
+Dat=Dat_All;
+Marker="NIS4" 
+List_Endpoint_update<-c("NASH","NAS","Fibrosis","Fibrosis_Excluding_Cirrhosis")
+
+
+
+for(i in 1:length(List_Endpoint_update)){
+  
+  Endpoint<-List_Endpoint_update[i]
+  
+  #Maximize sensitivity when constraining specificity to be at least 90%
+  Output<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  cat("Table 14.2.2.3A Diagnostic performance of NIS4 (Maximize sensitivity when constraining specificity to be at least 90%)")
+  Table<-Table_Fun(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  #Maximize specificity when constraining sensitivity to be at least 90%
+  Output<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  cat("Table 14.2.2.3B Diagnostic performance of NIS4 (Maximize specificity when constraining sensitivity to be at least 90%)")
+  Table<-Table_Fun(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+
+
+
+}
+
+
+
+```
+<br>
+
+
+## Table 14.2.2.4 Diagnostic performance of candidate biomarker OWL  
+<br>
+ 
+
+```{r OWL,echo=FALSE,results='asis',eval=FALSE}
+
+
+Dat=Dat_All;
+Marker="OWL" 
+List_Endpoint_update<-c("NASH","NAS")
+
+for(i in 1:length(List_Endpoint_update)){
+  
+  Endpoint<-List_Endpoint_update[i]
+  
+  Output<-CutpointAnalysis_Catalog(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  
+  cat("Table 14.2.2.4 Diagnostic performance of OWL")
+  
+  Table<-Table_Fun_Catalog(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  #AUC plot
+  cat(paste0("Figure 14.2.2.4 AUC plot of OWL on endpoint ", Endpoint)) 
+  plot(Output[["ROC"]]$sensitivities, Output[["ROC"]]$specificities, type="l", 
+       xlab="Sensitivities", ylab="specificities",
+       main=paste0("AUC plot of OWL on endpoint ", Endpoint),
+       ylim=c(0,1),xlim=c(1,0), col="blue",lwd=2)
+  abline(1,-1,lwd=2, lty=2)
+
+
+
+}
+
+
+
+```
+<br>
+
+
+## Table 14.2.2.5-1 Diagnostic performance of candidate biomarker Pro-C3 (COBAS) 
+<br>
+ 
+
+```{r PROC3COBAS,echo=FALSE,results='asis',eval=TRUE}
+
+
+Dat=Dat_All;
+Marker="Pro-C3" 
+List_Endpoint_update<-c("Fibrosis")
+
+for(i in 1:length(List_Endpoint_update)){
+  
+  Endpoint<-List_Endpoint_update[i]
+    
+  #Maximize sensitivity when constraining specificity to be at least 90%
+  Output<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  cat("Table 14.2.2.5A Diagnostic performance of Pro-C3 (Maximize sensitivity when constraining specificity to be at least 90%)")
+  Table<-Table_Fun(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+      
+  #Maximize specificity when constraining sensitivity to be at least 90%
+  Output<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  cat("Table 14.2.2.5B Diagnostic performance of Pro-C3 (Maximize specificity when constraining sensitivity to be at least 90%)")
+  Table<-Table_Fun(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+
+
+}
+
+
+
+```
+<br>
+
+
+
+
+## Table 14.2.2.5-2 Diagnostic performance of candidate biomarker Pro-C3 (ELISA) 
+<br>
+ 
+
+```{r PROC3ELISA,echo=FALSE,results='asis',eval=TRUE}
+
+
+Dat=Dat_All;
+Marker="Pro-C3-ELISA" 
+List_Endpoint_update<-c("Fibrosis")
+
+for(i in 1:length(List_Endpoint_update)){
+  
+  Endpoint<-List_Endpoint_update[i]
+    
+  #Maximize sensitivity when constraining specificity to be at least 90%
+  Output<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  cat("Table 14.2.2.5A Diagnostic performance of Pro-C3 (Maximize sensitivity when constraining specificity to be at least 90%)")
+  Table<-Table_Fun(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+      
+  #Maximize specificity when constraining sensitivity to be at least 90%
+  Output<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  cat("Table 14.2.2.5B Diagnostic performance of Pro-C3 (Maximize specificity when constraining sensitivity to be at least 90%)")
+  Table<-Table_Fun(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+
+
+}
+
+
+
+```
+<br>
+
+
+
+## Table 14.2.2.6 Diagnostic performance of candidate biomarker Pro-C4  
+<br>
+ 
+
+```{r PROC4,echo=FALSE,results='asis',eval=FALSE}
+
+
+Dat=Dat_All;
+Marker="Pro-C4" 
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis")
+
+for(i in 1:length(List_Endpoint_update)){
+  
+  Endpoint<-List_Endpoint_update[i]
+  
+  Output<-CutpointAnalysis(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  
+  cat("Table 14.2.2.6 Diagnostic performance of Pro-C4")
+  
+  Table<-Table_Fun(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  #AUC plot
+  cat(paste0("Figure 14.2.2.6 AUC plot of Pro-C4 on endpoint ", Endpoint)) 
+  plot(Output[["ROC"]]$sensitivities, Output[["ROC"]]$specificities, type="l", 
+       xlab="Sensitivities", ylab="specificities",
+       main=paste0("AUC plot of Pro-C4 on endpoint ", Endpoint),
+       ylim=c(0,1),xlim=c(1,0), col="blue",lwd=2)
+  abline(1,-1,lwd=2, lty=2)
+
+
+  
+
+}
+
+
+
+```
+<br>
+
+
+## Table 14.2.2.7 Diagnostic performance of candidate biomarker Pro-C5  
+<br>
+ 
+
+```{r PROC5,echo=FALSE,results='asis',eval=FALSE}
+
+
+Dat=Dat_All;
+Marker="Pro-C5" 
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis")
+
+for(i in 1:length(List_Endpoint_update)){
+  
+  Endpoint<-List_Endpoint_update[i]
+  
+  Output<-CutpointAnalysis(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  
+  cat("Table 14.2.2.7 Diagnostic performance of Pro-C5")
+  
+  Table<-Table_Fun(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+    #AUC plot
+  cat(paste0("Figure 14.2.2.7 AUC plot of Pro-C5 on endpoint ", Endpoint)) 
+  plot(Output[["ROC"]]$sensitivities, Output[["ROC"]]$specificities, type="l", 
+       xlab="Sensitivities", ylab="specificities",
+       main=paste0("AUC plot of Pro-C5 on endpoint ", Endpoint),
+       ylim=c(0,1),xlim=c(1,0), col="blue",lwd=2)
+  abline(1,-1,lwd=2, lty=2)
+
+
+
+}
+
+
+
+```
+<br>
+
+
+
+## Table 14.2.2.8 Diagnostic performance of candidate biomarker Pro-C6  
+<br>
+ 
+
+```{r PROC6,echo=FALSE,results='asis',eval=FALSE}
+
+
+Dat=Dat_All;
+Marker="Pro-C6" 
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis")
+
+for(i in 1:length(List_Endpoint_update)){
+  
+  Endpoint<-List_Endpoint_update[i]
+  
+  Output<-CutpointAnalysis(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  
+  cat("Table 14.2.2.8 Diagnostic performance of Pro-C6")
+  
+  Table<-Table_Fun(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  #AUC plot
+  cat(paste0("Figure 14.2.2.8 AUC plot of Pro-C6 on endpoint ", Endpoint)) 
+  plot(Output[["ROC"]]$sensitivities, Output[["ROC"]]$specificities, type="l", 
+       xlab="Sensitivities", ylab="specificities",
+       main=paste0("AUC plot of Pro-C6 on endpoint ", Endpoint),
+       ylim=c(0,1),xlim=c(1,0), col="blue",lwd=2)
+  abline(1,-1,lwd=2, lty=2)
+
+
+
+}
+
+
+
+```
+<br>
+
+
+
+
+## Table 14.2.2.9 Diagnostic performance of candidate biomarker ADAPT 
+<br>
+ 
+
+```{r ADAPT,echo=FALSE,results='asis',eval=FALSE}
+
+
+Dat=Dat_All;
+Marker="ADAPT" 
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis")
+
+for(i in 1:length(List_Endpoint_update)){
+  
+  Endpoint<-List_Endpoint_update[i]
+  
+  Output<-CutpointAnalysis(Dat=Dat, Marker=Marker, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+  
+  cat("Table 14.2.2.9 Diagnostic performance of ADAPT")
+  
+  Table<-Table_Fun(FIT=Output)
+  print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  Endpoint_pos_var<-Output[["Endpoint_pos_var"]] 
+  Endpoint_neg_var<-Output[["Endpoint_neg_var"]] 
+    
+  cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat("[2] P-value for the 1-sided test that AUROC > 0.5.")
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+  cat(paste("  ","  ","  ",sep="\n"))
+  
+  #AUC plot
+  cat(paste0("Figure 14.2.2.9 AUC plot of ADAPT on endpoint ", Endpoint)) 
+  plot(Output[["ROC"]]$sensitivities, Output[["ROC"]]$specificities, type="l", 
+       xlab="Sensitivities", ylab="specificities",
+       main=paste0("AUC plot of ADAPT on endpoint ", Endpoint),
+       ylim=c(0,1),xlim=c(1,0), col="blue",lwd=2,
+       cex.lab=1.8, cex.axis=1.5, cex.main=1.5, cex.sub=1.5)
+  abline(1,-1,lwd=2, lty=2)
+  
+  cat(paste("  ","  ","  ",sep="\n"))
+  cat(paste("  ","  ","  ",sep="\n"))
+
+
+}
+
+
+
+```
+<br>
+
+# Chapter IV: Comparison of the diagnostic performance of candidate marker versus biomarker 
+
+## Table 14.2.4.1 Comparison of the diagnostic performance of ELF versus FIB-4   
+<br>
+ 
+
+```{r ELFvsFIB-4,echo=FALSE,results='asis',eval=TRUE}
+
+Marker1="ELF" # bio-marker 
+Marker2="FIB-4" #candidate marker
+
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis", "Fibrosis_Excluding_Cirrhosis")
+
+
+for(i in 1:length(List_Endpoint_update)){
+  
+Endpoint<-List_Endpoint_update[i]
+
+# (Maximize sensitivity when constraining specificity to be at least 90%)
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+Output_Biomarker<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+cat("Table 14.2.4.1A Comparison of the diagnostic performance of ELF versus FIB-4 (Maximize sensitivity when constraining specificity to be at least 90%)")
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+
+#(Maximize specificity when constraining sensitivity to be at least 90%)
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+Output_Biomarker<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+cat("Table 14.2.4.1B Comparison of the diagnostic performance of ELF versus FIB-4 (Maximize specificity when constraining sensitivity to be at least 90%)")
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+
+}
+
+
+
+```
+<br>
+
+
+
+## Table 14.2.4.2 Comparison of the diagnostic performance of Fibrometer biomarkers versus FIB-4   
+<br>
+ 
+
+```{r FibrometervsFIB-4,echo=FALSE,results='asis',eval=TRUE}
+
+Marker_list<-c( "FMVCTE")
+Marker2="FIB-4" #candidate marker
+
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis", "Fibrosis_Excluding_Cirrhosis")
+
+ for(i in 1:length(Marker_list)){
+   
+    Marker1<-Marker_list[i]
+     
+    for(j in 1:length(List_Endpoint_update)){
+      
+    Endpoint<-List_Endpoint_update[j]
+    
+    # (Maximize sensitivity when constraining specificity to be at least 90%)
+    Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+    Output_Biomarker<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+    Output_Candidate<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+    
+    cat(paste0("Table 14.2.4.2.",i,"A Comparison of the diagnostic performance of ", Marker1," versus FIB-4 (Maximize sensitivity when constraining specificity to be at least 90%)"))
+    
+    Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+    
+    print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+    cat(paste("  ","  ","  ",sep="\n"))
+    cat(paste("  ","  ","  ",sep="\n"))
+    
+    Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+    Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+      
+    cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+    cat(paste("  ","  ","  ",sep="\n"))
+    cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+    cat(paste("  ","  ","  ",sep="\n"))
+    cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+    cat(paste("  ","  ","  ",sep="\n"))
+    
+    
+    #(Maximize specificity when constraining sensitivity to be at least 90%)
+    Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+    Output_Biomarker<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+    Output_Candidate<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+    
+    cat(paste0("Table 14.2.4.2.",i,"B Comparison of the diagnostic performance of ", Marker1," versus FIB-4 (Maximize specificity when constraining sensitivity to be at least 90%)"))
+    
+    Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+    
+    print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+    cat(paste("  ","  ","  ",sep="\n"))
+    cat(paste("  ","  ","  ",sep="\n"))
+    
+    Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+    Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+      
+    cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+    cat(paste("  ","  ","  ",sep="\n"))
+    cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+    cat(paste("  ","  ","  ",sep="\n"))
+    cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+    cat(paste("  ","  ","  ",sep="\n"))
+        
+    }
+ }
+
+
+```
+<br>
+
+
+## Table 14.2.4.3 Comparison of the diagnostic performance of NIS4 versus ALT   
+<br>
+ 
+
+```{r NIS4vsALT,echo=FALSE,results='asis',eval=TRUE}
+
+Marker1="NIS4" # bio-marker 
+Marker2="ALT" #candidate marker
+
+List_Endpoint_update<-c("NASH","NAS","Fibrosis","Advanced_Fibrosis","Cirrhosis","Fibrosis_Excluding_Cirrhosis")
+
+
+for(i in 1:length(List_Endpoint_update)){
+  
+Endpoint<-List_Endpoint_update[i]
+
+# (Maximize sensitivity when constraining specificity to be at least 90%)
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+Output_Biomarker<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+
+cat("Table 14.2.4.3A Comparison of the diagnostic performance of NIS4 versus ALT  (Maximize sensitivity when constraining specificity to be at least 90%)")
+
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+
+# (Maximize specificity when constraining sensitivity to be at least 90%)
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+Output_Biomarker<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+
+cat("Table 14.2.4.3B Comparison of the diagnostic performance of NIS4 versus ALT  (Maximize specificity when constraining sensitivity to be at least 90%)")
+
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+
+}
+
+
+
+```
+<br>
+
+
+## Table 14.2.4.4 Comparison of the diagnostic performance of NIS4 versus FIB-4   
+<br>
+ 
+
+```{r NIS4vsFIB-4,echo=FALSE,results='asis',eval=TRUE}
+
+Marker1="NIS4" # bio-marker 
+Marker2="FIB-4" #candidate marker
+
+List_Endpoint_update<-c("NASH","NAS","Fibrosis","Advanced_Fibrosis","Cirrhosis", "Fibrosis_Excluding_Cirrhosis")
+
+
+for(i in 1:length(List_Endpoint_update)){
+  
+Endpoint<-List_Endpoint_update[i]
+
+#(Maximize sensitivity when constraining specificity to be at least 90%)
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+
+Output_Biomarker<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+
+cat("Table 14.2.4.4A Comparison of the diagnostic performance of NIS4 versus FIB-4 (Maximize sensitivity when constraining specificity to be at least 90%)")
+
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+
+
+#(Maximize specificity when constraining sensitivity to be at least 90%)
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+
+Output_Biomarker<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+
+cat("Table 14.2.4.4B Comparison of the diagnostic performance of NIS4 versus FIB-4 (Maximize specificity when constraining sensitivity to be at least 90%)")
+
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+
+}
+
+
+
+```
+<br>
+
+## Table 14.2.4.5 Comparison of the diagnostic performance of OWL versus ALT   
+<br>
+ 
+
+```{r OWLvsALT,echo=FALSE,results='asis',eval=FALSE}
+
+Marker1="OWL" # bio-marker 
+Marker2="ALT" #candidate marker
+
+List_Endpoint_update<-c("NASH","NAS")
+
+
+for(i in 1:length(List_Endpoint_update)){
+  
+Endpoint<-List_Endpoint_update[i]
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+
+Output_Biomarker<-CutpointAnalysis_Catalog(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+
+cat("Table 14.2.4.5 Comparison of the diagnostic performance of NIS4 versus ALT")
+
+Table<-Table_Fun_Comparison_Catalog(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+}
+
+
+
+```
+<br>
+
+
+
+## Table 14.2.4.6-1A Comparison of the diagnostic performance of Pro-C3 versus FIB-4 (COBAS)    
+<br>
+ 
+
+```{r RPOC3COBASvsFIB-4,echo=FALSE,results='asis',eval=TRUE}
+
+
+Marker1="Pro-C3" # bio-marker 
+Marker2="FIB-4" #candidate marker
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis")
+
+
+for(i in 1:length(List_Endpoint_update)){
+  
+Endpoint<-List_Endpoint_update[i]
+
+#(Maximize sensitivity when constraining specificity to be at least 90%)
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+Output_Biomarker<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+cat("Table 14.2.4.6-1A Comparison of the diagnostic performance of Pro-C3 versus FIB-4 (Maximize sensitivity when constraining specificity to be at least 90%)")
+
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+
+#(Maximize specificity when constraining sensitivity to be at least 90%)
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+Output_Biomarker<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+cat("Table 14.2.4.6-1B Comparison of the diagnostic performance of Pro-C3 versus FIB-4 (Maximize specificity when constraining sensitivity to be at least 90%)")
+
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+}
+
+
+
+```
+<br>
+
+
+## Table 14.2.4.6-2 Comparison of the diagnostic performance of Pro-C3 versus FIB-4 (ELISA)    
+<br>
+ 
+
+```{r RPOC3ELIASvsFIB-4,echo=FALSE,results='asis',eval=TRUE}
+
+
+Marker1="Pro-C3-ELISA" # bio-marker 
+Marker2="FIB-4" #candidate marker
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis")
+
+
+for(i in 1:length(List_Endpoint_update)){
+  
+Endpoint<-List_Endpoint_update[i]
+
+#(Maximize sensitivity when constraining specificity to be at least 90%)
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+Output_Biomarker<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis_ConstrainSpecificity(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+cat("Table 14.2.4.6-2A Comparison of the diagnostic performance of Pro-C3 versus FIB-4 (Maximize sensitivity when constraining specificity to be at least 90%)")
+
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+
+#(Maximize specificity when constraining sensitivity to be at least 90%)
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+Output_Biomarker<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis_ConstrainSensitivity(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+cat("Table 14.2.4.6-2B Comparison of the diagnostic performance of Pro-C3 versus FIB-4 (Maximize specificity when constraining sensitivity to be at least 90%)")
+
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+}
+
+
+
+```
+<br>
+
+
+## Table 14.2.4.7 Comparison of the diagnostic performance of Pro-C4 versus FIB-4   
+<br>
+ 
+
+```{r RPOC4vsFIB-4,echo=FALSE,results='asis',eval=FALSE}
+
+
+Marker1="Pro-C4" # bio-marker 
+Marker2="FIB-4" #candidate marker
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis", "Fibrosis_Excluding_Cirrhosis")
+
+
+for(i in 1:length(List_Endpoint_update)){
+  
+Endpoint<-List_Endpoint_update[i]
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+
+
+Output_Biomarker<-CutpointAnalysis(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+
+cat("Table 14.2.4.7 Comparison of the diagnostic performance of Pro-C4 versus FIB-4")
+
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+}
+
+
+
+```
+<br>
+
+
+
+
+
+## Table 14.2.4.8 Comparison of the diagnostic performance of Pro-C5 versus FIB-4   
+<br>
+ 
+
+```{r RPOC5vsFIB-4,echo=FALSE,results='asis',eval=FALSE}
+
+
+Marker1="Pro-C5" # bio-marker 
+Marker2="FIB-4" #candidate marker
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis", "Fibrosis_Excluding_Cirrhosis")
+
+
+for(i in 1:length(List_Endpoint_update)){
+  
+Endpoint<-List_Endpoint_update[i]
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+
+
+Output_Biomarker<-CutpointAnalysis(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+
+cat("Table 14.2.4.8 Comparison of the diagnostic performance of Pro-C5 versus FIB-4")
+
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+}
+
+
+
+```
+<br>
+
+
+
+
+
+## Table 14.2.4.9 Comparison of the diagnostic performance of Pro-C6 versus FIB-4   
+<br>
+ 
+
+```{r RPOC6vsFIB-4,echo=FALSE,results='asis',eval=FALSE}
+
+
+Marker1="Pro-C6" # bio-marker 
+Marker2="FIB-4" #candidate marker
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis", "Fibrosis_Excluding_Cirrhosis")
+
+
+for(i in 1:length(List_Endpoint_update)){
+  
+Endpoint<-List_Endpoint_update[i]
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+
+
+Output_Biomarker<-CutpointAnalysis(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+
+cat("Table 14.2.4.9 Comparison of the diagnostic performance of Pro-C6 versus FIB-4")
+
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+}
+
+
+
+```
+<br>
+
+
+
+
+
+## Table 14.2.4.10 Comparison of the diagnostic performance of ADAPT versus FIB-4   
+<br>
+ 
+
+```{r ADAPTvsFIB-4,echo=FALSE,results='asis',eval=FALSE}
+
+
+Marker1="ADAPT" # bio-marker 
+Marker2="FIB-4" #candidate marker
+List_Endpoint_update<-c("Fibrosis","Advanced_Fibrosis","Cirrhosis", "Fibrosis_Excluding_Cirrhosis")
+
+
+for(i in 1:length(List_Endpoint_update)){
+  
+Endpoint<-List_Endpoint_update[i]
+Dat<-Dat_All[complete.cases(Dat_All[,c(Marker1,Marker2,Endpoint)]),] #use only common subjects for comparison 
+
+
+Output_Biomarker<-CutpointAnalysis(Dat=Dat, Marker=Marker1, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+Output_Candidate<-CutpointAnalysis(Dat=Dat, Marker=Marker2, Endpoint=Endpoint, Def_Endpoint =Def_Endpoint)
+
+cat("Table 14.2.4.10 Comparison of the diagnostic performance of ADAPT versus FIB-4")
+
+Table<-Table_Fun_Comparison(FIT_Biomarker=Output_Biomarker, FIT_Candidate=Output_Candidate)
+
+print(kable(Table,align="c",caption=paste0("Endpoint= ", Endpoint) ,row.names = NA))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("  ","  ","  ",sep="\n"))
+
+Endpoint_pos_var<-Output_Biomarker[["Endpoint_pos_var"]] 
+Endpoint_neg_var<-Output_Biomarker[["Endpoint_neg_var"]] 
+  
+cat(paste0("[1] Classification: positive = ",Endpoint_pos_var, " and negative = ", Endpoint_neg_var,"."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste0("[2] P-value for the 1-sided test that AUROC(",Marker1,") > AUCROC(",Marker2,")."))
+cat(paste("  ","  ","  ",sep="\n"))
+cat(paste("[3] Value of the candidate biomarker that gives the best classification."))
+cat(paste("  ","  ","  ",sep="\n"))
+
+}
+
+
+
+```
+<br>
